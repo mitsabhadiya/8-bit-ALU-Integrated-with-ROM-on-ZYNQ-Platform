@@ -2,9 +2,6 @@
 -- Title      : 8-bit ALU Integrated with ROM
 -- Project    : ZYNQ ALU-ROM Integration
 -- File       : MAIN_ALU.vhd
--- Author     : MIT VINUBHAI SABHADIYA
--- Student ID : 22083888
--- Company    : University
 -- Created    : 2024
 -- Platform   : ZYNQ-7000 SoC
 -- Standard   : VHDL'93/02
