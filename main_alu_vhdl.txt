@@ -1,0 +1,194 @@
+--------------------------------------------------------------------------------
+-- Title      : 8-bit ALU Integrated with ROM
+-- Project    : ZYNQ ALU-ROM Integration
+-- File       : MAIN_ALU.vhd
+-- Author     : MIT VINUBHAI SABHADIYA
+-- Student ID : 22083888
+-- Company    : University
+-- Created    : 2024
+-- Platform   : ZYNQ-7000 SoC
+-- Standard   : VHDL'93/02
+--------------------------------------------------------------------------------
+-- Description: 
+-- This module implements an 8-bit ALU integrated with ROM memory.
+-- The ALU supports four operations: Addition, Subtraction, Multiplication, 
+-- and Division. The ROM contains 8 predefined 8-bit values that serve as
+-- operand B for ALU operations.
+--
+-- Features:
+-- * Synchronous operation with clock, reset, and chip enable
+-- * 8x8-bit ROM with predefined content
+-- * Overflow/underflow detection with carry flag
+-- * Division by zero protection
+-- * Comprehensive error handling
+--------------------------------------------------------------------------------
+-- Revision History:
+-- Date        Version    Author    Description
+-- 2024-01-01  1.0        MVS       Initial version
+-- 2024-01-15  1.1        MVS       Added enhanced error handling
+-- 2024-02-01  1.2        MVS       Optimized for ZYNQ implementation
+--------------------------------------------------------------------------------
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+--------------------------------------------------------------------------------
+-- Entity Declaration
+--------------------------------------------------------------------------------
+entity MAIN_ALU is
+    Port (
+        CLK     : in  STD_LOGIC;                        -- System clock
+        RESET   : in  STD_LOGIC;                        -- Asynchronous reset (active high)
+        CE      : in  STD_LOGIC;                        -- Chip enable (active high)
+        OP      : in  STD_LOGIC_VECTOR(1 downto 0);    -- Operation code
+        A       : in  STD_LOGIC_VECTOR(7 downto 0);    -- Operand A
+        ADDR    : in  STD_LOGIC_VECTOR(2 downto 0);    -- ROM address
+        RESULT  : out STD_LOGIC_VECTOR(7 downto 0);    -- ALU result
+        CARRY   : out STD_LOGIC                         -- Carry/Error flag
+    );
+end MAIN_ALU;
+
+--------------------------------------------------------------------------------
+-- Architecture Declaration
+--------------------------------------------------------------------------------
+architecture Behavioral of MAIN_ALU is
+    
+    -- ROM Type Definition
+    type ROM_Type is array (0 to 7) of STD_LOGIC_VECTOR(7 downto 0);
+    
+    -- ROM Content Definition
+    -- Predefined 8-bit values for testing various ALU operations
+    constant ROM_Content : ROM_Type := (
+        0 => "00000100",  -- 4   (0x04) - Small value for basic operations
+        1 => "00001000",  -- 8   (0x08) - Power of 2 for shift-like operations
+        2 => "00010100",  -- 20  (0x14) - Medium value for underflow testing
+        3 => "00100011",  -- 35  (0x23) - Prime number for multiplication
+        4 => "01000010",  -- 66  (0x42) - Even number for division
+        5 => "01100100",  -- 100 (0x64) - Decimal hundred for easy verification
+        6 => "10000011",  -- 131 (0x83) - Large value for overflow testing
+        7 => "10000100"   -- 132 (0x84) - Maximum test value
+    );
+    
+    -- Internal Signals
+    signal B            : STD_LOGIC_VECTOR(7 downto 0) := (others => '0');  -- ROM output
+    signal temp_result  : STD_LOGIC_VECTOR(7 downto 0) := (others => '0');  -- Internal result
+    signal carry_flag   : STD_LOGIC := '0';                                  -- Internal carry flag
+    
+    -- Operation Code Constants
+    constant OP_ADD     : STD_LOGIC_VECTOR(1 downto 0) := "00";
+    constant OP_SUB     : STD_LOGIC_VECTOR(1 downto 0) := "01";
+    constant OP_MUL     : STD_LOGIC_VECTOR(1 downto 0) := "10";
+    constant OP_DIV     : STD_LOGIC_VECTOR(1 downto 0) := "11";
+    
+begin
+
+    --------------------------------------------------------------------------------
+    -- ROM Access Process
+    -- Handles reading data from ROM based on address input
+    -- Synchronous operation with reset capability
+    --------------------------------------------------------------------------------
+    ROM_Process: process(CLK)
+    begin
+        if rising_edge(CLK) then
+            if RESET = '1' then
+                -- Reset ROM output to zero
+                B <= (others => '0');
+            elsif CE = '1' then
+                -- Read from ROM at specified address
+                B <= ROM_Content(to_integer(unsigned(ADDR)));
+            end if;
+        end if;
+    end process ROM_Process;
+    
+    --------------------------------------------------------------------------------
+    -- ALU Operation Process
+    -- Performs arithmetic operations based on operation code
+    -- Includes overflow/underflow detection and error handling
+    --------------------------------------------------------------------------------
+    ALU_Process: process(CLK)
+        -- Extended result for overflow detection
+        variable full_result : UNSIGNED(15 downto 0);
+        -- Overflow detection flag
+        variable overflow    : STD_LOGIC := '0';
+    begin
+        if rising_edge(CLK) then
+            if RESET = '1' then
+                -- Reset all outputs
+                temp_result <= (others => '0');
+                carry_flag  <= '0';
+            elsif CE = '1' then
+                -- Perform operation based on OP code
+                case OP is
+                    
+                    when OP_ADD => -- Addition Operation
+                        -- Extend operands to 16-bit to detect overflow
+                        full_result := resize(unsigned(A), 16) + resize(unsigned(B), 16);
+                        -- Store lower 8 bits as result
+                        temp_result <= std_logic_vector(full_result(7 downto 0));
+                        
+                        -- Check for overflow in upper 8 bits
+                        overflow := '0';
+                        for i in 8 to 15 loop
+                            if full_result(i) = '1' then
+                                overflow := '1';
+                                exit; -- Exit loop early if overflow detected
+                            end if;
+                        end loop;
+                        carry_flag <= overflow;
+                    
+                    when OP_SUB => -- Subtraction Operation
+                        if unsigned(A) >= unsigned(B) then
+                            -- Normal subtraction (no underflow)
+                            full_result := resize(unsigned(A), 16) - resize(unsigned(B), 16);
+                            temp_result <= std_logic_vector(full_result(7 downto 0));
+                            carry_flag  <= '0';
+                        else
+                            -- Underflow condition: A < B
+                            temp_result <= (others => '0');
+                            carry_flag  <= '1'; -- Indicate underflow
+                        end if;
+                    
+                    when OP_MUL => -- Multiplication Operation
+                        -- Multiply operands (result can be up to 16 bits)
+                        full_result := unsigned(A) * unsigned(B);
+                        -- Store lower 8 bits (truncate if overflow)
+                        temp_result <= std_logic_vector(full_result(7 downto 0));
+                        
+                        -- Check for overflow in upper 8 bits
+                        overflow := '0';
+                        for i in 8 to 15 loop
+                            if full_result(i) = '1' then
+                                overflow := '1';
+                                exit; -- Exit loop early if overflow detected
+                            end if;
+                        end loop;
+                        carry_flag <= overflow;
+                    
+                    when OP_DIV => -- Division Operation
+                        if B /= "00000000" then
+                            -- Normal division (no division by zero)
+                            temp_result <= std_logic_vector(unsigned(A) / unsigned(B));
+                            carry_flag  <= '0';
+                        else
+                            -- Division by zero error
+                            temp_result <= (others => '0');
+                            carry_flag  <= '1'; -- Indicate division by zero
+                        end if;
+                    
+                    when others => -- Invalid operation code
+                        temp_result <= (others => '0');
+                        carry_flag  <= '0';
+                        
+                end case;
+            end if;
+        end if;
+    end process ALU_Process;
+    
+    --------------------------------------------------------------------------------
+    -- Output Assignments
+    --------------------------------------------------------------------------------
+    RESULT <= temp_result;
+    CARRY  <= carry_flag;
+    
+end Behavioral;

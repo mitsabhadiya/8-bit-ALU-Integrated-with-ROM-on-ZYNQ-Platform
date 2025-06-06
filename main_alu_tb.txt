@@ -1,0 +1,189 @@
+--------------------------------------------------------------------------------
+-- Title      : Testbench for 8-bit ALU Integrated with ROM
+-- Project    : ZYNQ ALU-ROM Integration
+-- File       : MAIN_ALU_tb.vhd
+-- Author     : MIT VINUBHAI SABHADIYA
+-- Student ID : 22083888
+-- Company    : University
+-- Created    : 2024
+-- Platform   : Simulation
+-- Standard   : VHDL'93/02
+--------------------------------------------------------------------------------
+-- Description: 
+-- Comprehensive testbench for the MAIN_ALU entity. This testbench validates:
+-- * All four arithmetic operations (ADD, SUB, MUL, DIV)
+-- * ROM functionality and data integrity
+-- * Edge cases including overflow, underflow, and division by zero
+-- * Proper carry flag generation
+-- * Reset and chip enable functionality
+-- * Timing requirements and synchronous operation
+--
+-- Test Coverage:
+-- * Basic arithmetic operations with various operand combinations
+-- * Boundary value testing (min/max values)
+-- * Error condition handling
+-- * ROM address boundary testing
+-- * Clock edge sensitivity verification
+--------------------------------------------------------------------------------
+-- Revision History:
+-- Date        Version    Author    Description
+-- 2024-01-01  1.0        MVS       Initial testbench
+-- 2024-01-15  1.1        MVS       Added comprehensive edge case testing
+-- 2024-02-01  1.2        MVS       Enhanced assertions and reporting
+--------------------------------------------------------------------------------
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+use STD.TEXTIO.ALL;
+use IEEE.STD_LOGIC_TEXTIO.ALL;
+
+--------------------------------------------------------------------------------
+-- Entity Declaration (Empty for testbench)
+--------------------------------------------------------------------------------
+entity MAIN_ALU_tb is
+end MAIN_ALU_tb;
+
+--------------------------------------------------------------------------------
+-- Architecture Declaration
+--------------------------------------------------------------------------------
+architecture Behavioral of MAIN_ALU_tb is
+    
+    --------------------------------------------------------------------------------
+    -- Component Declaration
+    --------------------------------------------------------------------------------
+    component MAIN_ALU is
+        Port (
+            CLK     : in  STD_LOGIC;
+            RESET   : in  STD_LOGIC;
+            CE      : in  STD_LOGIC;
+            OP      : in  STD_LOGIC_VECTOR(1 downto 0);
+            A       : in  STD_LOGIC_VECTOR(7 downto 0);
+            ADDR    : in  STD_LOGIC_VECTOR(2 downto 0);
+            RESULT  : out STD_LOGIC_VECTOR(7 downto 0);
+            CARRY   : out STD_LOGIC
+        );
+    end component;
+    
+    --------------------------------------------------------------------------------
+    -- Test Signals
+    --------------------------------------------------------------------------------
+    -- Clock and Control Signals
+    signal CLK_tb    : STD_LOGIC := '0';
+    signal RESET_tb  : STD_LOGIC := '0';
+    signal CE_tb     : STD_LOGIC := '0';
+    
+    -- Input Signals
+    signal OP_tb     : STD_LOGIC_VECTOR(1 downto 0) := "00";
+    signal A_tb      : STD_LOGIC_VECTOR(7 downto 0) := (others => '0');
+    signal ADDR_tb   : STD_LOGIC_VECTOR(2 downto 0) := (others => '0');
+    
+    -- Output Signals
+    signal RESULT_tb : STD_LOGIC_VECTOR(7 downto 0);
+    signal CARRY_tb  : STD_LOGIC;
+    
+    -- Test Control Signals
+    signal test_complete : BOOLEAN := FALSE;
+    signal test_number   : INTEGER := 0;
+    
+    -- Constants
+    constant CLK_PERIOD  : TIME := 12 ns;  -- 83.33 MHz clock
+    constant SETUP_TIME  : TIME := 20 ns;  -- Setup time for each test
+    
+    -- ROM Content for Verification (matches design)
+    type ROM_Type is array (0 to 7) of STD_LOGIC_VECTOR(7 downto 0);
+    constant ROM_Expected : ROM_Type := (
+        0 => "00000100",  -- 4
+        1 => "00001000",  -- 8
+        2 => "00010100",  -- 20
+        3 => "00100011",  -- 35
+        4 => "01000010",  -- 66
+        5 => "01100100",  -- 100
+        6 => "10000011",  -- 131
+        7 => "10000100"   -- 132
+    );
+    
+    -- Operation Code Constants
+    constant OP_ADD : STD_LOGIC_VECTOR(1 downto 0) := "00";
+    constant OP_SUB : STD_LOGIC_VECTOR(1 downto 0) := "01";
+    constant OP_MUL : STD_LOGIC_VECTOR(1 downto 0) := "10";
+    constant OP_DIV : STD_LOGIC_VECTOR(1 downto 0) := "11";
+    
+begin
+    
+    --------------------------------------------------------------------------------
+    -- Unit Under Test (UUT) Instantiation
+    --------------------------------------------------------------------------------
+    UUT: MAIN_ALU
+        port map (
+            CLK    => CLK_tb,
+            RESET  => RESET_tb,
+            CE     => CE_tb,
+            OP     => OP_tb,
+            A      => A_tb,
+            ADDR   => ADDR_tb,
+            RESULT => RESULT_tb,
+            CARRY  => CARRY_tb
+        );
+    
+    --------------------------------------------------------------------------------
+    -- Clock Generation Process
+    -- Generates continuous clock signal for synchronous operation
+    --------------------------------------------------------------------------------
+    CLK_Process: process
+    begin
+        if not test_complete then
+            CLK_tb <= '0';
+            wait for CLK_PERIOD/2;
+            CLK_tb <= '1';
+            wait for CLK_PERIOD/2;
+        else
+            wait;
+        end if;
+    end process CLK_Process;
+    
+    --------------------------------------------------------------------------------
+    -- Main Stimulus Process
+    -- Implements comprehensive test scenarios
+    --------------------------------------------------------------------------------
+    Stimulus: process
+        
+        -- Helper procedure for test reporting
+        procedure report_test(test_name: string; expected_result: std_logic_vector(7 downto 0); 
+                             expected_carry: std_logic) is
+            variable l : line;
+        begin
+            test_number <= test_number + 1;
+            write(l, string'("Test ") & integer'image(test_number) & string'(": ") & test_name);
+            write(l, string'(" | Expected: ") & to_hstring(expected_result));
+            write(l, string'(" | Got: ") & to_hstring(RESULT_tb));
+            write(l, string'(" | Carry Expected: ") & std_logic'image(expected_carry));
+            write(l, string'(" | Carry Got: ") & std_logic'image(CARRY_tb));
+            
+            if RESULT_tb = expected_result and CARRY_tb = expected_carry then
+                write(l, string'(" | PASS"));
+            else
+                write(l, string'(" | FAIL"));
+            end if;
+            writeline(output, l);
+        end procedure;
+        
+        -- Helper procedure for setting inputs and waiting
+        procedure perform_operation(op_code: std_logic_vector(1 downto 0);
+                                  operand_a: integer;
+                                  rom_addr: integer) is
+        begin
+            OP_tb   <= op_code;
+            A_tb    <= std_logic_vector(to_unsigned(operand_a, 8));
+            ADDR_tb <= std_logic_vector(to_unsigned(rom_addr, 3));
+            wait for SETUP_TIME;
+        end procedure;
+        
+    begin
+        -- Print test header
+        report "Starting MAIN_ALU Comprehensive Test Suite";
+        report "============================================";
+        
+        --------------------------------------------------------------------------------
+        -- Test 1: Reset Functionality
+        --------------------------------------------------------------------------------
