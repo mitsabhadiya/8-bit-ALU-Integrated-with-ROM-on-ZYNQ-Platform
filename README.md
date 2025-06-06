@@ -276,9 +276,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Contact
 
-**MIT VINUBHAI SABHADIYA**  
-Student ID: 22083888  
-📧 Email: [your.email@example.com]  
 🔗 LinkedIn: [Your LinkedIn Profile]  
 📅 Project Date: 2024
 
